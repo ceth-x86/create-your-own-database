@@ -8,7 +8,7 @@ import (
 
 // newNode creates a new BNode with the fixed page size.
 func newNode() BNode {
-	return make([]byte, BTREE_PAGE_SIZE)
+	return make([]byte, DefaultConfig.PageSize)
 }
 
 // expectPanic is a helper function that verifies a function f() panics.
@@ -159,7 +159,7 @@ func TestKeyValueOperations(t *testing.T) {
 // - Retrieving key and value separately
 // - Handling multiple key-value pairs
 func TestNodeKeyValue(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
+	node := make(BNode, DefaultConfig.PageSize)
 	node.setHeader(NodeTypeLeaf, 2)
 
 	// Test key-value operations
@@ -321,7 +321,7 @@ func TestMultipleKeyValuePairs(t *testing.T) {
 // - Preserving all keys after split
 // - Maintaining proper distribution of keys
 func TestNodeSplit(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
+	node := make(BNode, DefaultConfig.PageSize)
 	node.setHeader(NodeTypeLeaf, 5)
 
 	// Insert test data
@@ -341,9 +341,9 @@ func TestNodeSplit(t *testing.T) {
 	}
 
 	// Test splitting
-	left := make(BNode, BTREE_PAGE_SIZE)
-	right := make(BNode, BTREE_PAGE_SIZE)
-	nodeSplit2(left, right, node)
+	left := make(BNode, DefaultConfig.PageSize)
+	right := make(BNode, DefaultConfig.PageSize)
+	nodeSplit2(left, right, node, DefaultConfig)
 
 	// Verify split results
 	if left.nkeys() == 0 || right.nkeys() == 0 {
@@ -371,7 +371,7 @@ func TestNodeSplit(t *testing.T) {
 // - Ensuring size constraints are met
 // - Handling multiple entries
 func TestNodeBytes(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
+	node := make(BNode, DefaultConfig.PageSize)
 	node.setHeader(NodeTypeLeaf, 2)
 
 	// Insert test data
@@ -383,7 +383,7 @@ func TestNodeBytes(t *testing.T) {
 	if size == 0 {
 		t.Error("Node size should not be zero")
 	}
-	if size > BTREE_PAGE_SIZE {
-		t.Errorf("Node size %d exceeds page size %d", size, BTREE_PAGE_SIZE)
+	if size > DefaultConfig.PageSize {
+		t.Errorf("Node size %d exceeds page size %d", size, DefaultConfig.PageSize)
 	}
 }

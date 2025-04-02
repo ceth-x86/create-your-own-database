@@ -88,12 +88,19 @@ const (
 	NodeTypeLeaf     uint16 = 2 // Leaf nodes that contain keys and values
 )
 
-// B+ tree configuration constants
-const (
-	BTREE_PAGE_SIZE    = 4096 // Size of each node page in bytes
-	BTREE_MAX_KEY_SIZE = 1000 // Maximum allowed key size in bytes
-	BTREE_MAX_VAL_SIZE = 3000 // Maximum allowed value size in bytes
-)
+// Config holds B+ tree configuration parameters
+type Config struct {
+	PageSize   uint16 // Size of each node page in bytes
+	MaxKeySize uint16 // Maximum allowed key size in bytes
+	MaxValSize uint16 // Maximum allowed value size in bytes
+}
+
+// DefaultConfig provides default configuration values
+var DefaultConfig = Config{
+	PageSize:   4096,
+	MaxKeySize: 1000,
+	MaxValSize: 3000,
+}
 
 // BNode represents a B+ tree node as a byte slice
 type BNode []byte

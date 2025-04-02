@@ -42,11 +42,7 @@ func (m *MockStorage) Del(ptr uint64) {
 // NewTestTree creates a new BTree instance with mock storage
 func NewTestTree() *BTree {
 	mock := NewMockStorage()
-	return &BTree{
-		Get: mock.Get,
-		New: mock.New,
-		Del: mock.Del,
-	}
+	return NewBTree(mock.Get, mock.New, mock.Del)
 }
 
 func TestInsertAndSearch(t *testing.T) {

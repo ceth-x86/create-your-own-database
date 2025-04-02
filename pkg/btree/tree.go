@@ -17,6 +17,19 @@ type BTree struct {
 	Get func(uint64) []byte // Reads data from a page number
 	New func([]byte) uint64 // Allocates a new page and returns its number
 	Del func(uint64)        // Deallocates a page by its number
+
+	// Configuration for the B+ tree
+	Config Config
+}
+
+// NewBTree creates a new B+ tree with default configuration
+func NewBTree(get func(uint64) []byte, new func([]byte) uint64, del func(uint64)) *BTree {
+	return &BTree{
+		Get:    get,
+		New:    new,
+		Del:    del,
+		Config: DefaultConfig,
+	}
 }
 
 // nodeAppendKV appends a key-value pair to a node at the specified index
@@ -74,7 +87,7 @@ func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
 
 // nodeSplit2 splits a node into two nodes (left and right)
 // Ensures that both resulting nodes fit within page size limits
-func nodeSplit2(left BNode, right BNode, old BNode) {
+func nodeSplit2(left BNode, right BNode, old BNode, cfg Config) {
 	assert(old.nkeys() >= 2)
 
 	// the initial guess
@@ -85,7 +98,7 @@ func nodeSplit2(left BNode, right BNode, old BNode) {
 		return 4 + 8*nleft + 2*nleft + old.getOffset(nleft)
 	}
 
-	for left_bytes() > BTREE_PAGE_SIZE {
+	for left_bytes() > cfg.PageSize {
 		nleft--
 	}
 
@@ -96,7 +109,7 @@ func nodeSplit2(left BNode, right BNode, old BNode) {
 		return old.nbytes() - left_bytes() + 4
 	}
 
-	for right_bytes() > BTREE_PAGE_SIZE {
+	for right_bytes() > cfg.PageSize {
 		nleft++
 	}
 
@@ -111,31 +124,31 @@ func nodeSplit2(left BNode, right BNode, old BNode) {
 	nodeAppendRange(right, old, 0, nleft, nright)
 
 	// NOTE: the left half may be still too big
-	assert(right.nbytes() <= BTREE_PAGE_SIZE)
+	assert(right.nbytes() <= cfg.PageSize)
 }
 
 // nodeSplit3 splits a node into up to three nodes if necessary
 // Returns the number of resulting nodes and the nodes themselves
-func nodeSplit3(old BNode) (uint16, [3]BNode) {
-	if old.nbytes() <= BTREE_PAGE_SIZE {
-		old = old[:BTREE_PAGE_SIZE]
+func nodeSplit3(old BNode, cfg Config) (uint16, [3]BNode) {
+	if old.nbytes() <= cfg.PageSize {
+		old = old[:cfg.PageSize]
 		return 1, [3]BNode{old} // not split
 	}
 
-	left := BNode(make([]byte, 2*BTREE_PAGE_SIZE)) // might be split later
-	right := BNode(make([]byte, BTREE_PAGE_SIZE))
-	nodeSplit2(left, right, old)
+	left := BNode(make([]byte, 2*cfg.PageSize)) // might be split later
+	right := BNode(make([]byte, cfg.PageSize))
+	nodeSplit2(left, right, old, cfg)
 
-	if left.nbytes() <= BTREE_PAGE_SIZE {
-		left = left[:BTREE_PAGE_SIZE]
+	if left.nbytes() <= cfg.PageSize {
+		left = left[:cfg.PageSize]
 		return 2, [3]BNode{left, right} // split into 2 nodes
 	}
 
-	leftleft := BNode(make([]byte, BTREE_PAGE_SIZE))
-	middle := BNode(make([]byte, BTREE_PAGE_SIZE))
-	nodeSplit2(leftleft, middle, left)
+	leftleft := BNode(make([]byte, cfg.PageSize))
+	middle := BNode(make([]byte, cfg.PageSize))
+	nodeSplit2(leftleft, middle, left, cfg)
 
-	assert(leftleft.nbytes() <= BTREE_PAGE_SIZE)
+	assert(leftleft.nbytes() <= cfg.PageSize)
 	return 3, [3]BNode{leftleft, middle, right} // 3 nodes
 }
 
@@ -143,7 +156,7 @@ func nodeSplit3(old BNode) (uint16, [3]BNode) {
 // Returns the modified node after insertion
 func treeInsert(tree *BTree, node BNode, key []byte, val []byte) BNode {
 	// The extra size allows it to exceed 1 page temporarily
-	new := BNode(make([]byte, 2*BTREE_PAGE_SIZE))
+	new := BNode(make([]byte, 2*tree.Config.PageSize))
 
 	// Handle empty node case
 	if len(node) == 0 {
@@ -177,7 +190,7 @@ func treeInsert(tree *BTree, node BNode, key []byte, val []byte) BNode {
 			knode := treeInsert(tree, kid, key, val)
 
 			// after insertion, split the result
-			nsplit, split := nodeSplit3(knode)
+			nsplit, split := nodeSplit3(knode, tree.Config)
 
 			// deallocate the old kid node
 			tree.Del(kptr)
@@ -208,7 +221,7 @@ func nodeReplaceKidN(tree *BTree, new BNode, old BNode, idx uint16, kids ...BNod
 func (tree *BTree) Insert(key []byte, val []byte) {
 	if tree.Root == 0 {
 		// create the first node
-		root := BNode(make([]byte, BTREE_PAGE_SIZE))
+		root := BNode(make([]byte, tree.Config.PageSize))
 		root.setHeader(NodeTypeLeaf, 2)
 
 		// a dummy (sentinel) key, this makes the tree cover the whole key space.
@@ -221,11 +234,11 @@ func (tree *BTree) Insert(key []byte, val []byte) {
 	}
 
 	node := treeInsert(tree, tree.Get(tree.Root), key, val)
-	nsplit, split := nodeSplit3(node)
+	nsplit, split := nodeSplit3(node, tree.Config)
 	tree.Del(tree.Root)
 	if nsplit > 1 {
 		// the root was split, add a new level.
-		root := BNode(make([]byte, BTREE_PAGE_SIZE))
+		root := BNode(make([]byte, tree.Config.PageSize))
 		root.setHeader(NodeTypeInternal, nsplit)
 
 		for i, knode := range split[:nsplit] {
@@ -274,14 +287,14 @@ func (tree *BTree) Delete(key []byte) {
 }
 
 func shouldMerge(tree *BTree, node BNode, idx uint16, updated BNode) (int, BNode) {
-	if updated.nbytes() > BTREE_PAGE_SIZE/4 {
+	if updated.nbytes() > tree.Config.PageSize/4 {
 		return 0, BNode{}
 	}
 
 	if idx > 0 {
 		sibling := BNode(tree.Get(node.getPtr(idx - 1)))
 		merged := sibling.nbytes() + updated.nbytes() - 4 // 4 is HEADER
-		if merged <= BTREE_PAGE_SIZE {
+		if merged <= tree.Config.PageSize {
 			return -1, sibling // left
 		}
 	}
@@ -289,7 +302,7 @@ func shouldMerge(tree *BTree, node BNode, idx uint16, updated BNode) (int, BNode
 	if idx+1 < node.nkeys() {
 		sibling := BNode(tree.Get(node.getPtr(idx + 1)))
 		merged := sibling.nbytes() + updated.nbytes() - 4 // 4 is HEADER
-		if merged <= BTREE_PAGE_SIZE {
+		if merged <= tree.Config.PageSize {
 			return +1, sibling // right
 		}
 	}
@@ -319,18 +332,18 @@ func nodeDelete(tree *BTree, node BNode, idx uint16, key []byte) BNode {
 	}
 	tree.Del(kptr)
 
-	new := BNode(make([]byte, BTREE_PAGE_SIZE))
+	new := BNode(make([]byte, tree.Config.PageSize))
 	// check for merging
 	mergeDir, sibling := shouldMerge(tree, node, idx, updated)
 	switch {
 	case mergeDir < 0: // left
-		merged := BNode(make([]byte, BTREE_PAGE_SIZE))
+		merged := BNode(make([]byte, tree.Config.PageSize))
 		nodeMerge(merged, sibling, updated)
 		tree.Del(node.getPtr(idx - 1))
 		nodeReplace2Kid(new, node, idx-1, tree.New(merged), merged.getKey(0))
 
 	case mergeDir > 0: // right
-		merged := BNode(make([]byte, BTREE_PAGE_SIZE))
+		merged := BNode(make([]byte, tree.Config.PageSize))
 		nodeMerge(merged, updated, sibling)
 		tree.Del(node.getPtr(idx + 1))
 		nodeReplace2Kid(new, node, idx, tree.New(merged), merged.getKey(0))
@@ -352,7 +365,7 @@ func treeDelete(tree *BTree, node BNode, key []byte) BNode {
 	switch node.btype() {
 	case NodeTypeLeaf:
 		if idx < node.nkeys() && bytes.Equal(node.getKey(idx), key) {
-			new := BNode(make([]byte, BTREE_PAGE_SIZE))
+			new := BNode(make([]byte, tree.Config.PageSize))
 			new.setHeader(NodeTypeLeaf, node.nkeys()-1)
 			nodeAppendRange(new, node, 0, 0, idx)
 			nodeAppendRange(new, node, idx, idx+1, node.nkeys()-idx-1)

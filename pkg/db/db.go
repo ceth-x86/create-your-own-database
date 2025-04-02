@@ -33,10 +33,10 @@ func NewDB(path string) (*DB, error) {
 	}
 
 	// Initialize the B+ tree with storage callbacks for persistence
-	db.tree = &btree.BTree{
+	db.tree = btree.NewBTree(
 		// Get callback: Reads a node from disk using its page pointer
-		Get: func(ptr uint64) []byte {
-			data, err := s.Read(int64(ptr), int(btree.BTREE_PAGE_SIZE))
+		func(ptr uint64) []byte {
+			data, err := s.Read(int64(ptr), int(btree.DefaultConfig.PageSize))
 			if err != nil {
 				panic(err)
 			}
@@ -44,7 +44,7 @@ func NewDB(path string) (*DB, error) {
 		},
 
 		// New callback: Allocates space for a new node and writes it to disk
-		New: func(node []byte) uint64 {
+		func(node []byte) uint64 {
 			// Get the current file size to use as the offset for new data
 			stat, err := s.File.Stat()
 			if err != nil {
@@ -62,11 +62,11 @@ func NewDB(path string) (*DB, error) {
 
 		// Del callback: Handles deletion of nodes
 		// Currently implements a simple strategy where deleted space is not reclaimed
-		Del: func(ptr uint64) {
+		func(ptr uint64) {
 			// In this simple implementation, we don't actually delete data
 			// We just mark the space as free for reuse
 		},
-	}
+	)
 
 	return db, nil
 }
