@@ -84,8 +84,8 @@ import (
 
 const (
 	// Node types
-	BNODE_NODE = 1 // Internal nodes that only contain keys and pointers
-	BNODE_LEAF = 2 // Leaf nodes that contain keys and values
+	NodeTypeInternal uint16 = 1 // Internal nodes that only contain keys and pointers
+	NodeTypeLeaf     uint16 = 2 // Leaf nodes that contain keys and values
 )
 
 // B+ tree configuration constants
@@ -100,7 +100,7 @@ type BNode []byte
 
 // Header Operations
 
-// btype returns the type of the node (BNODE_NODE or BNODE_LEAF)
+// btype returns the type of the node (NodeTypeInternal or NodeTypeLeaf)
 func (node BNode) btype() uint16 {
 	return binary.LittleEndian.Uint16(node[0:2])
 }
@@ -193,7 +193,14 @@ func (node BNode) nbytes() uint16 {
 // nodeLookupLE finds the last position where the key is less than or equal to the target
 // Returns the index of the found position, or MAX_UINT16 if no such position exists
 func nodeLookupLE(node BNode, key []byte) uint16 {
+	if len(node) == 0 {
+		return 0xFFFF // Return MAX_UINT16 for empty nodes
+	}
+
 	nkeys := node.nkeys()
+	if nkeys == 0 {
+		return 0xFFFF // Return MAX_UINT16 for nodes with no keys
+	}
 
 	// Linear search through keys
 	for i := uint16(0); i < nkeys; i++ {

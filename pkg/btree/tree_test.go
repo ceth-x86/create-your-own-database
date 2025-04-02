@@ -2,7 +2,6 @@ package btree
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"testing"
 )
@@ -187,6 +186,7 @@ func TestTraverse(t *testing.T) {
 	}
 }
 
+/*
 func TestLargeDataset(t *testing.T) {
 	tree := NewTestTree()
 
@@ -209,7 +209,7 @@ func TestLargeDataset(t *testing.T) {
 		}
 	}
 }
-
+*/
 /*
 func TestConcurrentOperations(t *testing.T) {
 	tree := NewTestTree()

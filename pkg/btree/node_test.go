@@ -29,20 +29,20 @@ func expectPanic(t *testing.T, f func()) {
 // - nkeys returns the correct key count.
 func TestHeaderOperations(t *testing.T) {
 	node := newNode()
-	node.setHeader(BNODE_NODE, 5)
+	node.setHeader(NodeTypeInternal, 5)
 
-	if node.btype() != BNODE_NODE {
-		t.Errorf("expected node type %d, got %d", BNODE_NODE, node.btype())
+	if node.btype() != NodeTypeInternal {
+		t.Errorf("expected node type %d, got %d", NodeTypeInternal, node.btype())
 	}
 	if node.nkeys() != 5 {
 		t.Errorf("expected nkeys 5, got %d", node.nkeys())
 	}
 
 	node = newNode()
-	node.setHeader(BNODE_LEAF, 3)
+	node.setHeader(NodeTypeLeaf, 3)
 
-	if node.btype() != BNODE_LEAF {
-		t.Errorf("expected node type %d, got %d", BNODE_LEAF, node.btype())
+	if node.btype() != NodeTypeLeaf {
+		t.Errorf("expected node type %d, got %d", NodeTypeLeaf, node.btype())
 	}
 	if node.nkeys() != 3 {
 		t.Errorf("expected nkeys 3, got %d", node.nkeys())
@@ -56,7 +56,7 @@ func TestHeaderOperations(t *testing.T) {
 func TestPointerOperations(t *testing.T) {
 	node := newNode()
 	n := uint16(3)
-	node.setHeader(BNODE_NODE, n)
+	node.setHeader(NodeTypeInternal, n)
 
 	// Set pointers with distinct test values.
 	for i := uint16(0); i < n; i++ {
@@ -86,7 +86,7 @@ func TestPointerOperations(t *testing.T) {
 func TestOffsetOperations(t *testing.T) {
 	node := newNode()
 	n := uint16(2)
-	node.setHeader(BNODE_LEAF, n)
+	node.setHeader(NodeTypeLeaf, n)
 
 	// For index 0, getOffset should always return 0.
 	if off := node.getOffset(0); off != 0 {
@@ -121,7 +121,7 @@ func TestOffsetOperations(t *testing.T) {
 func TestKeyValueOperations(t *testing.T) {
 	node := newNode()
 	// Create a leaf node with 1 key-value pair.
-	node.setHeader(BNODE_LEAF, 1)
+	node.setHeader(NodeTypeLeaf, 1)
 	// Set offset for the first key-value pair.
 	// Record size: 2 bytes (key length) + 2 bytes (value length) + len(key) + len(val).
 	// For key = "key1" (4 bytes) and value = "val1" (4 bytes), total = 2+2+4+4 = 12 bytes.
@@ -160,7 +160,7 @@ func TestKeyValueOperations(t *testing.T) {
 // - Handling multiple key-value pairs
 func TestNodeKeyValue(t *testing.T) {
 	node := make(BNode, BTREE_PAGE_SIZE)
-	node.setHeader(BNODE_LEAF, 2)
+	node.setHeader(NodeTypeLeaf, 2)
 
 	// Test key-value operations
 	key := []byte("test")
@@ -196,7 +196,7 @@ func TestNodeKeyValue(t *testing.T) {
 func TestNodeLookupLE(t *testing.T) {
 	node := newNode()
 	n := uint16(3)
-	node.setHeader(BNODE_LEAF, n)
+	node.setHeader(NodeTypeLeaf, n)
 	// Set offsets for three key-value pairs.
 	node.setOffset(1, 6)  // first record occupies 6 bytes
 	node.setOffset(2, 12) // first two records occupy 12 bytes in total
@@ -241,7 +241,7 @@ func TestNodeLookupLE(t *testing.T) {
 // correctly triggers a panic.
 func TestAssertInGetKey(t *testing.T) {
 	node := newNode()
-	node.setHeader(BNODE_LEAF, 1)
+	node.setHeader(NodeTypeLeaf, 1)
 	// Set an offset for the single key-value pair.
 	node.setOffset(1, 0)
 	// Write an empty key-value pair (lengths are zero).
@@ -259,7 +259,7 @@ func TestAssertInGetKey(t *testing.T) {
 // (index >= nkeys) triggers a panic.
 func TestAssertInSetPtr(t *testing.T) {
 	node := newNode()
-	node.setHeader(BNODE_NODE, 1)
+	node.setHeader(NodeTypeInternal, 1)
 	expectPanic(t, func() {
 		node.setPtr(1, 100)
 	})
@@ -271,7 +271,7 @@ func TestAssertInSetPtr(t *testing.T) {
 func TestMultipleKeyValuePairs(t *testing.T) {
 	node := newNode()
 	n := uint16(4)
-	node.setHeader(BNODE_LEAF, n)
+	node.setHeader(NodeTypeLeaf, n)
 
 	// Define key-value pairs with varying lengths.
 	kvs := []struct {
@@ -322,7 +322,7 @@ func TestMultipleKeyValuePairs(t *testing.T) {
 // - Maintaining proper distribution of keys
 func TestNodeSplit(t *testing.T) {
 	node := make(BNode, BTREE_PAGE_SIZE)
-	node.setHeader(BNODE_LEAF, 5)
+	node.setHeader(NodeTypeLeaf, 5)
 
 	// Insert test data
 	testData := []struct {
@@ -372,7 +372,7 @@ func TestNodeSplit(t *testing.T) {
 // - Handling multiple entries
 func TestNodeBytes(t *testing.T) {
 	node := make(BNode, BTREE_PAGE_SIZE)
-	node.setHeader(BNODE_LEAF, 2)
+	node.setHeader(NodeTypeLeaf, 2)
 
 	// Insert test data
 	nodeAppendKV(node, 0, 0, []byte("key1"), []byte("value1"))
