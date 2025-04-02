@@ -81,6 +81,7 @@ func offsetPos(node BNode, idx uint16) uint16 {
 // getOffset returns the offset value at the given index
 // Index 0 returns 0 as it represents the start of the key-value area
 func (node BNode) getOffset(idx uint16) uint16 {
+	assert(idx <= node.nkeys())
 	if idx == 0 {
 		return 0
 	}
@@ -91,6 +92,7 @@ func (node BNode) getOffset(idx uint16) uint16 {
 
 // setOffset sets the offset value at the given index
 func (node BNode) setOffset(idx uint16, offset uint16) {
+	assert(1 <= idx && idx <= node.nkeys())
 	binary.LittleEndian.PutUint16(node[offsetPos(node, idx):], offset)
 }
 

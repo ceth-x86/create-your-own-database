@@ -2,68 +2,155 @@ package btree
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
-// TestNodeHeader verifies the basic header operations of a B+ tree node:
-// - Setting and getting node type (leaf/internal)
-// - Setting and getting number of keys
-func TestNodeHeader(t *testing.T) {
-	// Create an empty node with default page size
-	node := make(BNode, BTREE_PAGE_SIZE)
+// newNode creates a new BNode with the fixed page size.
+func newNode() BNode {
+	return make([]byte, BTREE_PAGE_SIZE)
+}
 
-	// Test case 1: Leaf node with 5 keys
-	node.setHeader(BNODE_LEAF, 5)
-	if node.btype() != BNODE_LEAF {
-		t.Errorf("Expected btype %d, got %d", BNODE_LEAF, node.btype())
+// expectPanic is a helper function that verifies a function f() panics.
+// If f() does not panic, the test fails.
+func expectPanic(t *testing.T, f func()) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected panic but none occurred")
+		}
+	}()
+	f()
+}
+
+// TestHeaderOperations verifies the header-related functions.
+// It tests that:
+// - setHeader correctly sets the node type and number of keys,
+// - btype returns the correct node type,
+// - nkeys returns the correct key count.
+func TestHeaderOperations(t *testing.T) {
+	node := newNode()
+	node.setHeader(BNODE_NODE, 5)
+
+	if node.btype() != BNODE_NODE {
+		t.Errorf("expected node type %d, got %d", BNODE_NODE, node.btype())
 	}
 	if node.nkeys() != 5 {
-		t.Errorf("Expected nkeys 5, got %d", node.nkeys())
+		t.Errorf("expected nkeys 5, got %d", node.nkeys())
 	}
 
-	// Test case 2: Internal node with 3 keys
-	node.setHeader(BNODE_NODE, 3)
-	if node.btype() != BNODE_NODE {
-		t.Errorf("Expected btype %d, got %d", BNODE_NODE, node.btype())
-	}
-	if node.nkeys() != 3 {
-		t.Errorf("Expected nkeys 3, got %d", node.nkeys())
-	}
-}
-
-// TestNodePointers verifies operations with child pointers in internal nodes:
-// - Setting pointers at specific indices
-// - Retrieving pointers from specific indices
-// - Handling multiple pointers
-func TestNodePointers(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
-	node.setHeader(BNODE_NODE, 3)
-
-	// Test setting and getting pointers
-	testPtrs := []uint64{100, 200, 300}
-	for i, ptr := range testPtrs {
-		node.setPtr(uint16(i), ptr)
-		if got := node.getPtr(uint16(i)); got != ptr {
-			t.Errorf("Expected pointer %d at index %d, got %d", ptr, i, got)
-		}
-	}
-}
-
-// TestNodeOffsets verifies the offset management functionality:
-// - Setting offsets for key-value pairs
-// - Retrieving offsets
-// - Handling multiple offsets
-func TestNodeOffsets(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
+	node = newNode()
 	node.setHeader(BNODE_LEAF, 3)
 
-	// Test setting and getting offsets
-	testOffsets := []uint16{1, 2, 3}
-	for i, offset := range testOffsets {
-		node.setOffset(uint16(i+1), offset)
-		if got := node.getOffset(uint16(i + 1)); got != offset {
-			t.Errorf("Expected offset %d at index %d, got %d", offset, i, got)
+	if node.btype() != BNODE_LEAF {
+		t.Errorf("expected node type %d, got %d", BNODE_LEAF, node.btype())
+	}
+	if node.nkeys() != 3 {
+		t.Errorf("expected nkeys 3, got %d", node.nkeys())
+	}
+}
+
+// TestPointerOperations verifies pointer-related functions:
+// - setPtr writes the pointer value at the given index,
+// - getPtr retrieves the correct pointer value,
+// - accessing an out-of-bound index results in a panic.
+func TestPointerOperations(t *testing.T) {
+	node := newNode()
+	n := uint16(3)
+	node.setHeader(BNODE_NODE, n)
+
+	// Set pointers with distinct test values.
+	for i := uint16(0); i < n; i++ {
+		val := uint64(i * 10)
+		node.setPtr(i, val)
+	}
+	// Verify that getPtr returns the correct pointer for each index.
+	for i := uint16(0); i < n; i++ {
+		expected := uint64(i * 10)
+		got := node.getPtr(i)
+		if got != expected {
+			t.Errorf("at index %d: expected pointer %d, got %d", i, expected, got)
 		}
+	}
+
+	// Test that accessing an out-of-bound pointer index triggers a panic.
+	expectPanic(t, func() {
+		_ = node.getPtr(n)
+	})
+}
+
+// TestOffsetOperations verifies offset-related functions:
+//   - getOffset returns 0 for index 0 (start of key-value area),
+//   - setOffset correctly writes offsets for valid indices,
+//   - invalid offset indices (e.g., index 0 for setting or an index > nkeys)
+//     cause a panic.
+func TestOffsetOperations(t *testing.T) {
+	node := newNode()
+	n := uint16(2)
+	node.setHeader(BNODE_LEAF, n)
+
+	// For index 0, getOffset should always return 0.
+	if off := node.getOffset(0); off != 0 {
+		t.Errorf("expected getOffset(0) = 0, got %d", off)
+	}
+
+	// Set offsets for indices 1 and 2.
+	node.setOffset(1, 10)
+	node.setOffset(2, 20)
+	if off := node.getOffset(1); off != 10 {
+		t.Errorf("expected getOffset(1) = 10, got %d", off)
+	}
+	if off := node.getOffset(2); off != 20 {
+		t.Errorf("expected getOffset(2) = 20, got %d", off)
+	}
+
+	// Setting offset for index 0 should trigger a panic.
+	expectPanic(t, func() {
+		node.setOffset(0, 5)
+	})
+	// Accessing an offset with an index greater than nkeys should trigger a panic.
+	expectPanic(t, func() {
+		_ = node.getOffset(3)
+	})
+}
+
+// TestKeyValueOperations verifies the key-value related functions:
+// - kvPos returns the correct starting position of the key-value record,
+// - getKey returns the correct key bytes,
+// - getVal returns the correct value bytes,
+// - nbytes returns the total number of bytes used in the node.
+func TestKeyValueOperations(t *testing.T) {
+	node := newNode()
+	// Create a leaf node with 1 key-value pair.
+	node.setHeader(BNODE_LEAF, 1)
+	// Set offset for the first key-value pair.
+	// Record size: 2 bytes (key length) + 2 bytes (value length) + len(key) + len(val).
+	// For key = "key1" (4 bytes) and value = "val1" (4 bytes), total = 2+2+4+4 = 12 bytes.
+	node.setOffset(1, 12)
+
+	// Get the starting position of the key-value record.
+	pos := node.kvPos(0)
+	// Write the key length and value length.
+	binary.LittleEndian.PutUint16(node[pos:], 4)   // key length = 4
+	binary.LittleEndian.PutUint16(node[pos+2:], 4) // value length = 4
+	// Write the key and value.
+	copy(node[pos+4:], []byte("key1"))
+	copy(node[pos+8:], []byte("val1"))
+
+	// Verify that getKey returns the correct key.
+	key := node.getKey(0)
+	if !bytes.Equal(key, []byte("key1")) {
+		t.Errorf("expected key 'key1', got %v", key)
+	}
+	// Verify that getVal returns the correct value.
+	val := node.getVal(0)
+	if !bytes.Equal(val, []byte("val1")) {
+		t.Errorf("expected value 'val1', got %v", val)
+	}
+
+	// Verify that nbytes returns the expected total bytes used in the node.
+	expectedNBytes := uint16(4 + 8*1 + 2*1 + 12) // header + pointers + offsets + record = 4+8+2+12 = 26
+	if node.nbytes() != expectedNBytes {
+		t.Errorf("expected nbytes %d, got %d", expectedNBytes, node.nbytes())
 	}
 }
 
@@ -103,43 +190,128 @@ func TestNodeKeyValue(t *testing.T) {
 	}
 }
 
-// TestNodeLookupLE verifies the Less-or-Equal lookup functionality:
-// - Exact matches
-// - Keys between existing entries
-// - Keys before first entry
-// - Keys after last entry
+// TestNodeLookupLE verifies the nodeLookupLE function, which searches for the last key that is
+// less than or equal to the provided key. This test covers cases with exact matches, values
+// between keys, and keys less than the smallest stored key.
 func TestNodeLookupLE(t *testing.T) {
-	node := make(BNode, BTREE_PAGE_SIZE)
-	node.setHeader(BNODE_LEAF, 3)
+	node := newNode()
+	n := uint16(3)
+	node.setHeader(BNODE_LEAF, n)
+	// Set offsets for three key-value pairs.
+	node.setOffset(1, 6)  // first record occupies 6 bytes
+	node.setOffset(2, 12) // first two records occupy 12 bytes in total
+	node.setOffset(3, 18) // all three records occupy 18 bytes in total
 
-	// Insert keys in sorted order
-	keys := [][]byte{
-		[]byte("apple"),
-		[]byte("banana"),
-		[]byte("cherry"),
+	// Prepare three key-value pairs with keys "a", "c", "e" and values "1", "2", "3".
+	keys := [][]byte{[]byte("a"), []byte("c"), []byte("e")}
+	vals := [][]byte{[]byte("1"), []byte("2"), []byte("3")}
+	for i := uint16(0); i < n; i++ {
+		pos := node.kvPos(i)
+		// Write key length and value length (both are 1 byte).
+		binary.LittleEndian.PutUint16(node[pos:], 1)
+		binary.LittleEndian.PutUint16(node[pos+2:], 1)
+		// Write the actual key and value.
+		copy(node[pos+4:], keys[i])
+		copy(node[pos+5:], vals[i])
 	}
 
-	for i, key := range keys {
-		nodeAppendKV(node, uint16(i), 0, key, []byte("value"))
-	}
-
-	// Test lookups
+	// Define test cases: each search key and the expected index.
 	tests := []struct {
-		key      []byte
-		expected uint16
+		searchKey []byte
+		expected  uint16
 	}{
-		{[]byte("apple"), 0},
-		{[]byte("apricot"), 0},
-		{[]byte("banana"), 1},
-		{[]byte("berry"), 1},
-		{[]byte("cherry"), 2},
-		{[]byte("date"), 2},
-		{[]byte("a"), 65535},
+		{[]byte("a"), 0},      // Exact match for first key.
+		{[]byte("b"), 0},      // Between "a" and "c" → index 0.
+		{[]byte("c"), 1},      // Exact match for second key.
+		{[]byte("d"), 1},      // Between "c" and "e" → index 1.
+		{[]byte("e"), 2},      // Exact match for third key.
+		{[]byte("f"), 2},      // Greater than the last key → index 2.
+		{[]byte("0"), 0xFFFF}, // Less than the first key → MAX_UINT16.
 	}
 
-	for _, test := range tests {
-		if got := nodeLookupLE(node, test.key); got != test.expected {
-			t.Errorf("For key %s, expected index %d, got %d", test.key, test.expected, got)
+	for _, tt := range tests {
+		idx := nodeLookupLE(node, tt.searchKey)
+		if idx != tt.expected {
+			t.Errorf("nodeLookupLE(%s): expected %d, got %d", tt.searchKey, tt.expected, idx)
+		}
+	}
+}
+
+// TestAssertInGetKey verifies that calling getKey with an invalid index (equal to nkeys)
+// correctly triggers a panic.
+func TestAssertInGetKey(t *testing.T) {
+	node := newNode()
+	node.setHeader(BNODE_LEAF, 1)
+	// Set an offset for the single key-value pair.
+	node.setOffset(1, 0)
+	// Write an empty key-value pair (lengths are zero).
+	pos := node.kvPos(0)
+	binary.LittleEndian.PutUint16(node[pos:], 0)   // key length
+	binary.LittleEndian.PutUint16(node[pos+2:], 0) // value length
+
+	// Accessing getKey with index equal to nkeys (which is out-of-bound) should panic.
+	expectPanic(t, func() {
+		_ = node.getKey(1)
+	})
+}
+
+// TestAssertInSetPtr verifies that attempting to set a pointer at an invalid index
+// (index >= nkeys) triggers a panic.
+func TestAssertInSetPtr(t *testing.T) {
+	node := newNode()
+	node.setHeader(BNODE_NODE, 1)
+	expectPanic(t, func() {
+		node.setPtr(1, 100)
+	})
+}
+
+// TestMultipleKeyValuePairs is an additional test that adds multiple key-value pairs with
+// variable key and value sizes. It verifies that the node correctly calculates offsets,
+// stores the records, and that getKey and getVal return the expected data.
+func TestMultipleKeyValuePairs(t *testing.T) {
+	node := newNode()
+	n := uint16(4)
+	node.setHeader(BNODE_LEAF, n)
+
+	// Define key-value pairs with varying lengths.
+	kvs := []struct {
+		key string
+		val string
+	}{
+		{"short", "val1"},
+		{"a bit longer key", "value2"},
+		{"key3", "a much much longer value than before"},
+		{"the longest key in this test case", "v"},
+	}
+
+	// Calculate and set offsets for each key-value pair.
+	currentOffset := uint16(0)
+	for i, kv := range kvs {
+		// Record size: 2 bytes (key length) + 2 bytes (value length) + key length + value length.
+		recordSize := 2 + 2 + uint16(len(kv.key)) + uint16(len(kv.val))
+		currentOffset += recordSize
+		// Offsets are stored with indices starting at 1.
+		node.setOffset(uint16(i+1), currentOffset)
+	}
+
+	// Write each key-value pair into the node.
+	for i, kv := range kvs {
+		pos := node.kvPos(uint16(i))
+		binary.LittleEndian.PutUint16(node[pos:], uint16(len(kv.key)))
+		binary.LittleEndian.PutUint16(node[pos+2:], uint16(len(kv.val)))
+		copy(node[pos+4:], []byte(kv.key))
+		copy(node[pos+4+uint16(len(kv.key)):], []byte(kv.val))
+	}
+
+	// Verify that all key-value pairs are stored and retrievable correctly.
+	for i, kv := range kvs {
+		retrievedKey := node.getKey(uint16(i))
+		retrievedVal := node.getVal(uint16(i))
+		if !bytes.Equal(retrievedKey, []byte(kv.key)) {
+			t.Errorf("pair %d: expected key '%s', got '%s'", i, kv.key, string(retrievedKey))
+		}
+		if !bytes.Equal(retrievedVal, []byte(kv.val)) {
+			t.Errorf("pair %d: expected value '%s', got '%s'", i, kv.val, string(retrievedVal))
 		}
 	}
 }
