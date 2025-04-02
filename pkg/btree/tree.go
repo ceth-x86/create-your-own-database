@@ -47,15 +47,15 @@ func nodeAppendKV(new BNode, idx uint16, ptr uint64, key []byte, val []byte) {
 	pos := new.kvPos(idx)
 
 	// Write key and value lengths (2 bytes each)
-	binary.LittleEndian.PutUint16(new[pos+0:], uint16(len(key)))
+	binary.LittleEndian.PutUint16(new[pos:], uint16(len(key)))
 	binary.LittleEndian.PutUint16(new[pos+2:], uint16(len(val)))
 
 	// Write actual key and value data
-	copy(new[pos+4:], key)
-	copy(new[pos+4+uint16(len(key)):], val)
+	copy(new[pos+kvLenSize:], key)
+	copy(new[pos+kvLenSize+uint16(len(key)):], val)
 
 	// Update offset for the next entry
-	new.setOffset(idx+1, new.getOffset(idx)+4+uint16((len(key)+len(val))))
+	new.setOffset(idx+1, new.getOffset(idx)+kvLenSize+uint16(len(key)+len(val)))
 }
 
 // nodeAppendRange copies a range of key-value pairs from one node to another
@@ -95,7 +95,7 @@ func nodeSplit2(left BNode, right BNode, old BNode, cfg Config) {
 
 	// try to fit the left half
 	left_bytes := func() uint16 {
-		return 4 + 8*nleft + 2*nleft + old.getOffset(nleft)
+		return headerSize + ptrSize*nleft + offsetSize*nleft + old.getOffset(nleft)
 	}
 
 	for left_bytes() > cfg.PageSize {
@@ -106,7 +106,7 @@ func nodeSplit2(left BNode, right BNode, old BNode, cfg Config) {
 
 	// try to fit the right half
 	right_bytes := func() uint16 {
-		return old.nbytes() - left_bytes() + 4
+		return old.nbytes() - left_bytes() + headerSize
 	}
 
 	for right_bytes() > cfg.PageSize {

@@ -84,8 +84,17 @@ import (
 
 const (
 	// Node types
-	NodeTypeInternal uint16 = 1 // Internal nodes that only contain keys and pointers
-	NodeTypeLeaf     uint16 = 2 // Leaf nodes that contain keys and values
+	NodeTypeInternal uint16 = 1
+	NodeTypeLeaf     uint16 = 2
+
+	// Memory layout constants
+	headerSize = 4 // Size of node header (2B type + 2B nkeys)
+	ptrSize    = 8 // Size of each pointer
+	offsetSize = 2 // Size of each offset
+	kvLenSize  = 4 // Size of key-value length fields (2B key + 2B value)
+
+	// Special values
+	invalidIndex = 0xFFFF // Used for not found/invalid index
 )
 
 // Config holds B+ tree configuration parameters
@@ -128,14 +137,14 @@ func (node BNode) setHeader(btype uint16, nkeys uint16) {
 // getPtr returns the child pointer at the given index
 func (node BNode) getPtr(idx uint16) uint64 {
 	assert(idx < node.nkeys())
-	pos := 4 + 8*idx // Skip header (4) + pointer size (8) * index
+	pos := headerSize + ptrSize*idx // Skip header + pointer size * index
 	return binary.LittleEndian.Uint64(node[pos:])
 }
 
 // setPtr sets the child pointer at the given index
 func (node BNode) setPtr(idx uint16, val uint64) {
 	assert(idx < node.nkeys())
-	pos := 4 + 8*idx
+	pos := headerSize + ptrSize*idx
 	binary.LittleEndian.PutUint64(node[pos:], val)
 }
 
@@ -144,7 +153,7 @@ func (node BNode) setPtr(idx uint16, val uint64) {
 // offsetPos calculates the position of the offset for the given index
 func offsetPos(node BNode, idx uint16) uint16 {
 	assert(1 <= idx && idx <= node.nkeys())
-	return 4 + 8*node.nkeys() + 2*(idx-1) // Skip header + pointers + previous offsets
+	return headerSize + ptrSize*node.nkeys() + offsetSize*(idx-1) // Skip header + pointers + previous offsets
 }
 
 // getOffset returns the offset value at the given index
@@ -155,7 +164,7 @@ func (node BNode) getOffset(idx uint16) uint16 {
 		return 0
 	}
 
-	pos := 4 + 8*node.nkeys() + 2*(idx-1)
+	pos := headerSize + ptrSize*node.nkeys() + offsetSize*(idx-1)
 	return binary.LittleEndian.Uint16(node[pos:])
 }
 
@@ -170,7 +179,7 @@ func (node BNode) setOffset(idx uint16, offset uint16) {
 // kvPos calculates the position where the key-value pair starts
 func (node BNode) kvPos(idx uint16) uint16 {
 	assert(idx <= node.nkeys())
-	return 4 + 8*node.nkeys() + 2*node.nkeys() + node.getOffset(idx)
+	return headerSize + ptrSize*node.nkeys() + offsetSize*node.nkeys() + node.getOffset(idx)
 }
 
 // getKey returns the key at the given index
@@ -178,16 +187,16 @@ func (node BNode) getKey(idx uint16) []byte {
 	assert(idx < node.nkeys())
 	pos := node.kvPos(idx)
 	klen := binary.LittleEndian.Uint16(node[pos:])
-	return node[pos+4:][:klen]
+	return node[pos+kvLenSize:][:klen]
 }
 
 // getVal returns the value at the given index
 func (node BNode) getVal(idx uint16) []byte {
 	assert(idx < node.nkeys())
 	pos := node.kvPos(idx)
-	klen := binary.LittleEndian.Uint16(node[pos+0:])
+	klen := binary.LittleEndian.Uint16(node[pos:])
 	vlen := binary.LittleEndian.Uint16(node[pos+2:])
-	return node[pos+4+klen:][:vlen]
+	return node[pos+kvLenSize+klen:][:vlen]
 }
 
 // nbytes returns the total number of bytes used in the node
@@ -198,15 +207,15 @@ func (node BNode) nbytes() uint16 {
 // Search Operations
 
 // nodeLookupLE finds the last position where the key is less than or equal to the target
-// Returns the index of the found position, or MAX_UINT16 if no such position exists
+// Returns the index of the found position, or invalidIndex if no such position exists
 func nodeLookupLE(node BNode, key []byte) uint16 {
 	if len(node) == 0 {
-		return 0xFFFF // Return MAX_UINT16 for empty nodes
+		return invalidIndex // Return invalidIndex for empty nodes
 	}
 
 	nkeys := node.nkeys()
 	if nkeys == 0 {
-		return 0xFFFF // Return MAX_UINT16 for nodes with no keys
+		return invalidIndex // Return invalidIndex for nodes with no keys
 	}
 
 	// Linear search through keys
