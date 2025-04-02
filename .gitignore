@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-db
+/db
 
 # Test binary, built with `go test -c`
 *.test
@@ -26,4 +26,4 @@ vendor/
 Thumbs.db
 
 # Database files
-data/ 
+data/
