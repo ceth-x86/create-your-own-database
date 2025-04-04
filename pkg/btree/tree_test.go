@@ -2,6 +2,8 @@ package btree
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -213,6 +215,249 @@ func TestTraverse(t *testing.T) {
 	for k, v := range pairs {
 		if found[k] != v {
 			t.Errorf("Expected %s -> %s, found %s -> %s", k, v, k, found[k])
+		}
+	}
+}
+
+// TestNodeSplit2 verifies the basic splitting functionality of nodeSplit2
+func TestNodeSplit2(t *testing.T) {
+	cfg := DefaultConfig
+
+	// Test case 1: Basic split
+	t.Run("basic split", func(t *testing.T) {
+		// Create a node with some test data
+		old := make(BNode, cfg.PageSize*2)
+		old.setHeader(NodeTypeLeaf, 10)
+
+		// Add some test key-value pairs
+		for i := uint16(0); i < 10; i++ {
+			key := []byte(fmt.Sprintf("key%d", i))
+			val := []byte(fmt.Sprintf("value%d", i))
+			nodeAppendKV(old, i, 0, key, val)
+		}
+
+		// Create target nodes for the split
+		left := make(BNode, cfg.PageSize)
+		right := make(BNode, cfg.PageSize)
+
+		// Perform the split
+		nodeSplit2(left, right, old, cfg)
+
+		// Verify the split results
+		if left.nkeys() == 0 || right.nkeys() == 0 {
+			t.Error("Split should result in non-empty nodes")
+		}
+
+		if left.nkeys()+right.nkeys() != old.nkeys() {
+			t.Errorf("Total keys after split should equal original keys. Got %d + %d != %d",
+				left.nkeys(), right.nkeys(), old.nkeys())
+		}
+
+		// Verify right node fits within page size
+		if right.nbytes() > cfg.PageSize {
+			t.Errorf("Right node exceeds page size: %d > %d", right.nbytes(), cfg.PageSize)
+		}
+
+		// Verify node types are preserved
+		if left.btype() != old.btype() || right.btype() != old.btype() {
+			t.Error("Node types should be preserved after split")
+		}
+	})
+
+	// Test case 2: Too few keys
+	t.Run("too few keys", func(t *testing.T) {
+		old := make(BNode, cfg.PageSize)
+		old.setHeader(NodeTypeLeaf, 1) // Less than minimum required keys
+
+		left := make(BNode, cfg.PageSize)
+		right := make(BNode, cfg.PageSize)
+
+		// This should panic due to assertion in nodeSplit2
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Expected panic for too few keys")
+			}
+		}()
+		nodeSplit2(left, right, old, cfg)
+	})
+}
+
+// TestNodeSplit3 verifies the nodeSplit3 function's ability to handle different scenarios
+func TestNodeSplit3(t *testing.T) {
+	cfg := DefaultConfig
+
+	// Helper function to create a node with test data
+	createTestNode := func(nkeys uint16) BNode {
+		node := make(BNode, cfg.PageSize)
+		node.setHeader(NodeTypeLeaf, nkeys)
+		for i := uint16(0); i < nkeys; i++ {
+			key := []byte(fmt.Sprintf("key%d", i))
+			val := []byte(fmt.Sprintf("value%d", i))
+			nodeAppendKV(node, i, 0, key, val)
+		}
+		return node
+	}
+
+	// Test case 1: Node that fits in one page
+	t.Run("fits in one page", func(t *testing.T) {
+		old := createTestNode(5)
+
+		nsplit, split := nodeSplit3(old, cfg)
+		if nsplit != 1 {
+			t.Errorf("Expected 1 node, got %d", nsplit)
+		}
+		if len(split[0]) == 0 {
+			t.Error("Split node should not be empty")
+		}
+		if split[0].nkeys() != old.nkeys() {
+			t.Error("Number of keys should be preserved when no split occurs")
+		}
+	})
+
+	// Test case 2: Node that needs to be split into two
+	t.Run("splits into two", func(t *testing.T) {
+		// Create a node that's too big for one page
+		old := make(BNode, cfg.PageSize*2)
+		old.setHeader(NodeTypeLeaf, 30) // Increased number of keys
+		for i := uint16(0); i < 30; i++ {
+			// Create larger key-value pairs to ensure the node exceeds page size
+			key := []byte(fmt.Sprintf("key%d_%s", i, strings.Repeat("x", 100)))
+			val := []byte(fmt.Sprintf("value%d_%s", i, strings.Repeat("y", 100)))
+			nodeAppendKV(old, i, 0, key, val)
+		}
+
+		nsplit, split := nodeSplit3(old, cfg)
+		if nsplit != 2 {
+			t.Errorf("Expected 2 nodes, got %d", nsplit)
+		}
+
+		// Verify both nodes fit within page size
+		for i := 0; i < int(nsplit); i++ {
+			if split[i].nbytes() > cfg.PageSize {
+				t.Errorf("Node %d exceeds page size: %d > %d",
+					i, split[i].nbytes(), cfg.PageSize)
+			}
+		}
+
+		// Verify total keys are preserved
+		totalKeys := uint16(0)
+		for i := 0; i < int(nsplit); i++ {
+			totalKeys += split[i].nkeys()
+		}
+		if totalKeys != old.nkeys() {
+			t.Errorf("Total keys after split should equal original keys. Got %d != %d",
+				totalKeys, old.nkeys())
+		}
+	})
+
+	// Test case 3: Node that needs to be split into three
+	t.Run("splits into three", func(t *testing.T) {
+		// Create a node that's too big for one page
+		old := make(BNode, cfg.PageSize*3)
+		old.setHeader(NodeTypeLeaf, 50) // Increased number of keys
+		for i := uint16(0); i < 50; i++ {
+			// Create larger key-value pairs to ensure the node exceeds page size
+			key := []byte(fmt.Sprintf("key%d_%s", i, strings.Repeat("x", 100)))
+			val := []byte(fmt.Sprintf("value%d_%s", i, strings.Repeat("y", 100)))
+			nodeAppendKV(old, i, 0, key, val)
+		}
+
+		nsplit, split := nodeSplit3(old, cfg)
+		if nsplit != 3 {
+			t.Errorf("Expected 3 nodes, got %d", nsplit)
+		}
+
+		// Verify all nodes fit within page size
+		for i := 0; i < int(nsplit); i++ {
+			if split[i].nbytes() > cfg.PageSize {
+				t.Errorf("Node %d exceeds page size: %d > %d",
+					i, split[i].nbytes(), cfg.PageSize)
+			}
+		}
+
+		// Verify total keys are preserved
+		totalKeys := uint16(0)
+		for i := 0; i < int(nsplit); i++ {
+			totalKeys += split[i].nkeys()
+		}
+		if totalKeys != old.nkeys() {
+			t.Errorf("Total keys after split should equal original keys. Got %d != %d",
+				totalKeys, old.nkeys())
+		}
+	})
+
+	// Test case 4: Empty node
+	t.Run("empty node", func(t *testing.T) {
+		old := make(BNode, cfg.PageSize)
+		old.setHeader(NodeTypeLeaf, 0)
+
+		nsplit, split := nodeSplit3(old, cfg)
+		if nsplit != 1 {
+			t.Errorf("Expected 1 node for empty input, got %d", nsplit)
+		}
+		if split[0].nkeys() != 0 {
+			t.Error("Empty input should result in empty node")
+		}
+	})
+}
+
+// TestNodeSplitConsistency verifies that the split operations maintain data consistency
+func TestNodeSplitConsistency(t *testing.T) {
+	cfg := DefaultConfig
+
+	// Create a node with some test data
+	old := make(BNode, cfg.PageSize*2)
+	old.setHeader(NodeTypeLeaf, 20)
+
+	// Add some test key-value pairs
+	for i := uint16(0); i < 20; i++ {
+		key := []byte(fmt.Sprintf("key%d", i))
+		val := []byte(fmt.Sprintf("value%d", i))
+		nodeAppendKV(old, i, 0, key, val)
+	}
+
+	// Test nodeSplit2
+	left := make(BNode, cfg.PageSize)
+	right := make(BNode, cfg.PageSize)
+	nodeSplit2(left, right, old, cfg)
+
+	// Verify all keys and values are preserved
+	allData := make(map[string]string)
+	for i := uint16(0); i < left.nkeys(); i++ {
+		allData[string(left.getKey(i))] = string(left.getVal(i))
+	}
+	for i := uint16(0); i < right.nkeys(); i++ {
+		allData[string(right.getKey(i))] = string(right.getVal(i))
+	}
+
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("key%d", i)
+		expectedVal := fmt.Sprintf("value%d", i)
+		if val, ok := allData[key]; !ok {
+			t.Errorf("Key %s missing after split", key)
+		} else if val != expectedVal {
+			t.Errorf("Wrong value for key %s: expected %s, got %s", key, expectedVal, val)
+		}
+	}
+
+	// Test nodeSplit3
+	nsplit, split := nodeSplit3(old, cfg)
+
+	// Verify all keys and values are preserved across all split nodes
+	allData = make(map[string]string)
+	for i := 0; i < int(nsplit); i++ {
+		for j := uint16(0); j < split[i].nkeys(); j++ {
+			allData[string(split[i].getKey(j))] = string(split[i].getVal(j))
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("key%d", i)
+		expectedVal := fmt.Sprintf("value%d", i)
+		if val, ok := allData[key]; !ok {
+			t.Errorf("Key %s missing after split3", key)
+		} else if val != expectedVal {
+			t.Errorf("Wrong value for key %s: expected %s, got %s", key, expectedVal, val)
 		}
 	}
 }
