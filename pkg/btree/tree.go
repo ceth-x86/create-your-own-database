@@ -86,7 +86,11 @@ func leafUpdate(new BNode, old BNode, idx uint16, key []byte, val []byte) {
 }
 
 // nodeSplit2 splits a node into two nodes (left and right)
-// Ensures that both resulting nodes fit within page size limits
+// This is a low-level function that:
+// - Takes an existing node and splits it into exactly two parts
+// - Ensures the right node always fits within page size limits
+// - May leave the left node still too large
+// - Is used as a helper function by nodeSplit3
 func nodeSplit2(left BNode, right BNode, old BNode, cfg Config) {
 	assert(old.nkeys() >= 2)
 
@@ -127,8 +131,16 @@ func nodeSplit2(left BNode, right BNode, old BNode, cfg Config) {
 	assert(right.nbytes() <= cfg.PageSize)
 }
 
-// nodeSplit3 splits a node into up to three nodes if necessary
-// Returns the number of resulting nodes and the nodes themselves
+// nodeSplit3 splits a node into 1, 2, or 3 nodes as needed
+// This is the main splitting function that:
+// - Returns the number of resulting nodes (1, 2, or 3) and the nodes themselves
+// - Uses nodeSplit2 internally for the actual splitting logic
+// - Guarantees all resulting nodes will fit within page size limits
+// - Should be used as the primary splitting function in the B-tree
+// The splitting process:
+// 1. If the node fits within page size - returns it unchanged
+// 2. If not - tries to split into 2 nodes using nodeSplit2
+// 3. If the left node is still too large - splits it again
 func nodeSplit3(old BNode, cfg Config) (uint16, [3]BNode) {
 	if old.nbytes() <= cfg.PageSize {
 		old = old[:cfg.PageSize]

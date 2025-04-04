@@ -98,7 +98,6 @@ func TestMultipleInsertions(t *testing.T) {
 		"orange": "orange",
 	}
 
-	// Insert all pairs into the tree
 	for k, v := range pairs {
 		tree.Insert([]byte(k), []byte(v))
 	}
